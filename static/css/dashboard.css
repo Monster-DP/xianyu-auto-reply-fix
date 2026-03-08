@@ -98,44 +98,110 @@
   line-height: 1.2;
 }
 
-.dashboard-half-panels .card {
-  min-height: 420px;
+/* 销售额统计样式 */
+.sales-summary-section {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
 }
 
-.dashboard-account-table td,
-.dashboard-account-table th,
-.dashboard-delivery-log-table td,
-.dashboard-delivery-log-table th {
-  text-align: center;
-  vertical-align: middle;
+.sales-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
 }
 
-.dashboard-delivery-rule {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-  margin: 0 auto;
+.sales-kpi-item {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
 }
 
-.dashboard-delivery-reason {
-  max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.sales-kpi-label {
+  font-size: 0.875rem;
+  color: var(--secondary-color);
+  margin-bottom: 0.5rem;
 }
 
-.dashboard-delivery-log-table td .d-flex {
+.sales-kpi-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-color);
+  line-height: 1.2;
+}
+
+/* 销售额加载状态样式 */
+.sales-value-loading {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--secondary-color);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* 销售额错误状态样式 */
+.sales-value-error {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--danger-color);
+}
+
+/* 时间范围选择器样式 */
+.time-range-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.date-range-picker {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  width: 100%;
+}
+
+/* 图表容器样式 */
+.chart-container {
+  position: relative;
+  height: 300px;
+  width: 100%;
+}
+
+/* 图表加载遮罩样式 */
+.chart-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
   justify-content: center;
+  z-index: 10;
+  border-radius: 8px;
 }
 
-@media (max-width: 1200px) {
-  .dashboard-half-panels .card {
-    min-height: auto;
-  }
+[data-theme="dark"] .chart-loading-overlay {
+  background: rgba(30, 30, 30, 0.85);
+}
 
-  .dashboard-delivery-reason {
-    max-width: 180px;
-  }
+.chart-loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.chart-loading-text {
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 500;
 }

@@ -354,6 +354,12 @@ async function loadDashboard() {
         // 加载订单看板数据
         const orderMetrics = await loadOrderDashboardMetrics();
 
+        // 加载销售额摘要数据
+        await loadSalesSummary();
+
+        // 加载销售额图表数据（默认显示最近1周）
+        await loadSalesChart('week');
+
         // 更新仪表盘显示
         updateDashboardStats(accountsWithKeywords.length, totalKeywords, enabledAccounts, totalItems);
         updateDashboardAccountsList(accountsWithKeywords);
@@ -451,6 +457,443 @@ async function loadOrderDashboardMetrics() {
         console.error('加载订单数量失败:', error);
         updateDashboardOrderMetrics(defaultMetrics);
         return defaultMetrics;
+    }
+}
+
+// 销售额摘要定时刷新定时器
+let salesSummaryRefreshTimer = null;
+
+// 加载销售额摘要数据
+async function loadSalesSummary() {
+    const todaySalesEl = document.getElementById('dashboardTodaySales');
+    const weekSalesEl = document.getElementById('dashboardWeekSales');
+    const monthSalesEl = document.getElementById('dashboardMonthSales');
+    const updateTimeEl = document.getElementById('dashboardSalesUpdateTime');
+    
+    // 显示加载状态
+    showSalesLoadingState(todaySalesEl);
+    showSalesLoadingState(weekSalesEl);
+    showSalesLoadingState(monthSalesEl);
+    
+    try {
+        const token = localStorage.getItem('auth_token');
+        const response = await fetch('/api/sales/summary', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+        if (data.success && data.data) {
+            updateDashboardSalesMetrics(data.data);
+        } else {
+            showSalesErrorState(todaySalesEl, '获取失败');
+            showSalesErrorState(weekSalesEl, '获取失败');
+            showSalesErrorState(monthSalesEl, '获取失败');
+        }
+    } catch (error) {
+        console.error('加载销售额摘要失败:', error);
+        showSalesErrorState(todaySalesEl, '加载失败');
+        showSalesErrorState(weekSalesEl, '加载失败');
+        showSalesErrorState(monthSalesEl, '加载失败');
+    }
+    
+    // 启动定时刷新（每5分钟刷新一次）
+    startSalesSummaryRefreshTimer();
+}
+
+// 显示销售额加载状态
+function showSalesLoadingState(element) {
+    if (element) {
+        element.innerHTML = '<span class="sales-value-loading">加载中...</span>';
+    }
+}
+
+// 显示销售额错误状态
+function showSalesErrorState(element, message) {
+    if (element) {
+        element.innerHTML = `<span class="sales-value-error">${message}</span>`;
+    }
+}
+
+// 格式化销售额显示（带千分位分隔符）
+function formatSalesAmount(amount) {
+    return amount.toLocaleString('zh-CN', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+}
+
+// 更新销售额指标
+function updateDashboardSalesMetrics(metrics) {
+    const todaySalesEl = document.getElementById('dashboardTodaySales');
+    const weekSalesEl = document.getElementById('dashboardWeekSales');
+    const monthSalesEl = document.getElementById('dashboardMonthSales');
+    const updateTimeEl = document.getElementById('dashboardSalesUpdateTime');
+
+    if (todaySalesEl) {
+        todaySalesEl.innerHTML = `￥${formatSalesAmount(metrics.today_sales)}`;
+    }
+
+    if (weekSalesEl) {
+        weekSalesEl.innerHTML = `￥${formatSalesAmount(metrics.week_sales)}`;
+    }
+
+    if (monthSalesEl) {
+        monthSalesEl.innerHTML = `￥${formatSalesAmount(metrics.month_sales)}`;
+    }
+
+    if (updateTimeEl) {
+        updateTimeEl.textContent = metrics.update_time;
+    }
+}
+
+// 启动销售额摘要定时刷新
+function startSalesSummaryRefreshTimer() {
+    // 清除现有定时器
+    if (salesSummaryRefreshTimer) {
+        clearInterval(salesSummaryRefreshTimer);
+    }
+    
+    // 每5分钟刷新一次
+    salesSummaryRefreshTimer = setInterval(async () => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                clearInterval(salesSummaryRefreshTimer);
+                return;
+            }
+            
+            const response = await fetch('/api/sales/summary', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            const data = await response.json();
+            if (data.success && data.data) {
+                updateDashboardSalesMetrics(data.data);
+            }
+        } catch (error) {
+            console.error('定时刷新销售额摘要失败:', error);
+        }
+    }, 5 * 60 * 1000); // 5分钟
+}
+
+// 停止销售额摘要定时刷新
+function stopSalesSummaryRefreshTimer() {
+    if (salesSummaryRefreshTimer) {
+        clearInterval(salesSummaryRefreshTimer);
+        salesSummaryRefreshTimer = null;
+    }
+}
+
+// 销售额图表实例
+let salesChartInstance = null;
+let currentChartPeriod = null;
+
+// 显示图表加载状态
+function showChartLoading() {
+    const chartContainer = document.querySelector('.chart-container');
+    if (!chartContainer) return;
+    
+    // 添加加载遮罩
+    let loadingOverlay = chartContainer.querySelector('.chart-loading-overlay');
+    if (!loadingOverlay) {
+        loadingOverlay = document.createElement('div');
+        loadingOverlay.className = 'chart-loading-overlay';
+        loadingOverlay.innerHTML = `
+            <div class="chart-loading-spinner">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">加载中...</span>
+                </div>
+                <span class="chart-loading-text">数据加载中...</span>
+            </div>
+        `;
+        chartContainer.style.position = 'relative';
+        chartContainer.appendChild(loadingOverlay);
+    }
+    loadingOverlay.style.display = 'flex';
+}
+
+// 隐藏图表加载状态
+function hideChartLoading() {
+    const loadingOverlay = document.querySelector('.chart-loading-overlay');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
+    }
+}
+
+// 更新按钮激活状态
+function updateChartButtonState(activePeriod) {
+    const buttons = document.querySelectorAll('.time-range-selector .btn-group .btn');
+    buttons.forEach(btn => {
+        const btnPeriod = btn.dataset.period;
+        
+        if (btnPeriod === activePeriod) {
+            btn.classList.remove('btn-outline-primary');
+            btn.classList.add('btn-primary');
+        } else {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline-primary');
+        }
+    });
+}
+
+// 加载销售额图表数据
+async function loadSalesChart(period) {
+    showChartLoading();
+    updateChartButtonState(period);
+    
+    try {
+        const token = localStorage.getItem('auth_token');
+        let startDate, endDate;
+        const now = new Date();
+
+        if (period === 'week') {
+            startDate = new Date(now);
+            startDate.setDate(now.getDate() - 6);
+        } else if (period === 'month') {
+            startDate = new Date(now);
+            startDate.setMonth(now.getMonth() - 1);
+        }
+
+        const startDateStr = startDate.toISOString().split('T')[0];
+        const endDateStr = now.toISOString().split('T')[0];
+
+        const response = await fetch(`/api/sales?start_date=${startDateStr}&end_date=${endDateStr}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+        if (data.success && data.data) {
+            currentChartPeriod = period;
+            renderSalesChart(data.data.sales, period);
+        }
+    } catch (error) {
+        console.error('加载销售额图表数据失败:', error);
+        showToast('加载销售额数据失败', 'danger');
+    } finally {
+        hideChartLoading();
+    }
+}
+
+// 加载自定义日期范围的销售额数据
+async function loadCustomSalesChart() {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+
+    if (!startDate || !endDate) {
+        showToast('请选择开始和结束日期', 'warning');
+        return;
+    }
+
+    if (new Date(startDate) > new Date(endDate)) {
+        showToast('开始日期不能晚于结束日期', 'warning');
+        return;
+    }
+
+    showChartLoading();
+    updateChartButtonState('custom');
+
+    try {
+        const token = localStorage.getItem('auth_token');
+        const response = await fetch(`/api/sales?start_date=${startDate}&end_date=${endDate}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const data = await response.json();
+        if (data.success && data.data) {
+            currentChartPeriod = 'custom';
+            renderSalesChart(data.data.sales, 'custom');
+        }
+    } catch (error) {
+        console.error('加载自定义销售额数据失败:', error);
+        showToast('加载销售额数据失败', 'danger');
+    } finally {
+        hideChartLoading();
+    }
+}
+
+// 切换日期选择器显示
+function toggleDateRangePicker() {
+    const dateRangePicker = document.getElementById('dateRangePicker');
+    dateRangePicker.style.display = dateRangePicker.style.display === 'none' ? 'block' : 'none';
+}
+
+// 渲染销售额图表
+function renderSalesChart(salesData, period) {
+    const ctx = document.getElementById('salesChart').getContext('2d');
+    
+    // 准备数据
+    const labels = salesData.map(item => item.date);
+    const data = salesData.map(item => item.amount);
+
+    // 创建渐变填充
+    const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+    gradient.addColorStop(0, 'rgba(0, 123, 255, 0.3)');
+    gradient.addColorStop(0.5, 'rgba(0, 123, 255, 0.15)');
+    gradient.addColorStop(1, 'rgba(0, 123, 255, 0.02)');
+
+    // 如果图表已存在，使用平滑更新
+    if (salesChartInstance) {
+        // 使用动画更新数据
+        salesChartInstance.data.labels = labels;
+        salesChartInstance.data.datasets[0].data = data;
+        salesChartInstance.data.datasets[0].backgroundColor = gradient;
+        
+        // 更新标题
+        salesChartInstance.options.plugins.title.text = getChartTitle(period);
+        
+        // 平滑过渡更新
+        salesChartInstance.update('active');
+        return;
+    }
+
+    // 创建新图表
+    salesChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '销售额',
+                data: data,
+                borderColor: '#007bff',
+                backgroundColor: gradient,
+                borderWidth: 3,
+                tension: 0.4,
+                cubicInterpolationMode: 'monotone',
+                fill: true,
+                pointBackgroundColor: '#007bff',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                pointHoverBackgroundColor: '#0056b3',
+                pointHoverBorderColor: '#fff',
+                pointHoverBorderWidth: 3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 750,
+                easing: 'easeInOutQuart'
+            },
+            transitions: {
+                active: {
+                    animation: {
+                        duration: 750,
+                        easing: 'easeInOutQuart'
+                    }
+                }
+            },
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 15,
+                        font: {
+                            size: 13,
+                            weight: '500'
+                        }
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    titleColor: '#fff',
+                    bodyColor: '#fff',
+                    borderColor: '#007bff',
+                    borderWidth: 1,
+                    padding: 12,
+                    displayColors: true,
+                    callbacks: {
+                        label: function(context) {
+                            return `销售额: ￥${context.parsed.y.toFixed(2)}`;
+                        }
+                    }
+                },
+                title: {
+                    display: true,
+                    text: getChartTitle(period),
+                    font: {
+                        size: 16,
+                        weight: '600'
+                    },
+                    padding: {
+                        bottom: 15
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: '日期',
+                        font: {
+                            size: 12,
+                            weight: '500'
+                        }
+                    },
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        font: {
+                            size: 11
+                        }
+                    }
+                },
+                y: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: '销售额 (￥)',
+                        font: {
+                            size: 12,
+                            weight: '500'
+                        }
+                    },
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.05)',
+                        drawBorder: false
+                    },
+                    ticks: {
+                        callback: function(value) {
+                            return '￥' + value;
+                        },
+                        font: {
+                            size: 11
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 获取图表标题
+function getChartTitle(period) {
+    if (period === 'week') {
+        return '最近1周销售额趋势';
+    } else if (period === 'month') {
+        return '最近1月销售额趋势';
+    } else {
+        return '自定义时间范围销售额趋势';
     }
 }
 
@@ -3162,6 +3605,9 @@ function goToAutoReply(accountId) {
 
 // 登出功能
 async function logout() {
+    // 停止销售额摘要定时刷新
+    stopSalesSummaryRefreshTimer();
+    
     try {
     if (authToken) {
         await fetch('/logout', {
