@@ -1124,6 +1124,7 @@ function renderDashboardDeliveryLogs(logs) {
         const matchModeLabelMap = {
             no_spec_match: '无规格',
             one_spec_exact: '一组规格',
+            one_spec_fallback_no_spec: '单规兜底',
             two_spec_exact: '两组规格',
             blocked_no_rule: '无规则',
             blocked_no_spec_parsed: '缺少规格',
@@ -1145,6 +1146,8 @@ function renderDashboardDeliveryLogs(logs) {
         let matchBadge = buildBadge(matchModeLabelMap[log.match_mode] || (log.match_mode || '未知'), 'bg-secondary');
         if (log.match_mode === 'one_spec_exact' || log.match_mode === 'two_spec_exact') {
             matchBadge = buildBadge(matchModeLabelMap[log.match_mode], 'bg-primary');
+        } else if (log.match_mode === 'one_spec_fallback_no_spec') {
+            matchBadge = buildBadge(matchModeLabelMap[log.match_mode], 'bg-info text-dark');
         } else if (log.match_mode === 'no_spec_match') {
             matchBadge = buildBadge(matchModeLabelMap[log.match_mode], 'bg-warning text-dark');
         } else if (String(log.match_mode || '').startsWith('blocked_')) {
@@ -14883,9 +14886,18 @@ let remoteVersionInfo = null;
 
 // 本地版本历史（远程服务禁用时使用）
 const LOCAL_VERSION_HISTORY = {
-    version: 'v1.5.6',
+    version: 'v1.5.7',
     intro: '本系统仅供个人学习研究使用，请勿用于商业用途。如有问题或建议，欢迎反馈。',
     versionHistory: [
+        {
+            version: 'v1.5.7',
+            date: '2026-03-11',
+            updates: [
+                '【修复】单规格订单自动发货改为优先精确匹配，精确规则未命中时支持降级到普通关键字规则',
+                '【优化】单规格降级兜底仅在唯一命中一条普通规则时放行，避免多规则误发',
+                '【优化】发货日志新增“单规兜底”标签，便于区分精确命中和普通规则兜底'
+            ]
+        },
         {
             version: 'v1.5.6',
             date: '2026-03-11',

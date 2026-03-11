@@ -6712,9 +6712,32 @@ Cookie数量: {cookie_count}
                     expected_mode='one_spec'
                 )
                 if not delivery_rules:
-                    error_message = "一组规格订单未找到匹配的发货规则"
-                    logger.warning(f"{error_message}: {search_text[:50]}...")
-                    return build_result(False, error=error_message, match_mode_value='blocked_no_rule')
+                    logger.warning(
+                        f"一组规格订单未找到精确规格规则，尝试降级匹配普通发货规则: {search_text[:50]}..."
+                    )
+                    fallback_rules = db_manager.get_delivery_rules_by_keyword(
+                        search_text,
+                        user_id=self.user_id,
+                        only_non_multi_spec=True
+                    )
+                    if not fallback_rules:
+                        error_message = "一组规格订单未找到匹配的发货规则"
+                        logger.warning(f"{error_message}: {search_text[:50]}...")
+                        return build_result(False, error=error_message, match_mode_value='blocked_no_rule')
+                    if len(fallback_rules) != 1:
+                        block_reason = (
+                            f"一组规格订单精确匹配失败后，普通规则兜底匹配到{len(fallback_rules)}条，"
+                            f"已阻断自动发货以避免错发: order_id={order_id or 'unknown'}, "
+                            f"item_id={item_id or 'unknown'}"
+                        )
+                        logger.error(block_reason)
+                        return build_result(False, error=block_reason, match_mode_value='blocked_multiple_no_spec_rules')
+                    delivery_rules = fallback_rules
+                    match_mode = 'one_spec_fallback_no_spec'
+                    logger.warning(
+                        f"一组规格订单已降级命中唯一普通规则: order_id={order_id or 'unknown'}, "
+                        f"item_id={item_id or 'unknown'}, rule_id={delivery_rules[0].get('id')}"
+                    )
             else:
                 match_mode = 'no_spec_match'
                 logger.info(f"无规格订单，尝试匹配普通发货规则: {search_text[:50]}...")
@@ -6744,7 +6767,13 @@ Cookie数量: {cookie_count}
                 f"match_mode={match_mode}, rule_id={rule.get('id')}"
             )
 
-            if rule_spec_mode != order_spec_mode:
+            allow_one_spec_fallback = (
+                match_mode == 'one_spec_fallback_no_spec'
+                and order_spec_mode == 'one_spec'
+                and rule_spec_mode == 'no_spec'
+            )
+
+            if rule_spec_mode != order_spec_mode and not allow_one_spec_fallback:
                 block_reason = (
                     f"订单规格模式与命中规则模式不一致，已阻断自动发货: "
                     f"order_spec_mode={order_spec_mode}, rule_spec_mode={rule_spec_mode}, "
@@ -6778,6 +6807,12 @@ Cookie数量: {cookie_count}
                 order_spec_info = f"{spec_name}:{spec_value}, {spec_name_2}:{spec_value_2}"
                 logger.info(f"🎯 精确匹配两组规格发货规则: {rule['keyword']} -> {rule['card_name']} [{rule_spec_info}]")
                 logger.info(f"📋 订单规格: {order_spec_info} ✅ 匹配卡券规格: {rule_spec_info}")
+            elif match_mode == 'one_spec_fallback_no_spec':
+                order_spec_info = f"{spec_name}:{spec_value}"
+                logger.warning(
+                    f"⚠️ 单规格订单降级匹配普通发货规则: {rule['keyword']} -> {rule['card_name']} ({rule['card_type']})"
+                )
+                logger.warning(f"📋 订单规格: {order_spec_info}，精确规格未命中，已降级到普通规则")
             elif order_spec_mode == 'one_spec':
                 rule_spec_info = f"{rule['spec_name']}:{rule['spec_value']}"
                 order_spec_info = f"{spec_name}:{spec_value}"
