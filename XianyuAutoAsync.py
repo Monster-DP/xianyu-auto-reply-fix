@@ -1159,9 +1159,20 @@ class XianyuLive:
 
         return bool(db_manager.get_item_info(self.cookie_id, item_id))
 
+    # 已知的无效 buyer_id 占位值
+    _INVALID_BUYER_IDS = {"unknown_user", "unknown", "", "None", "null"}
+
+    @staticmethod
+    def _is_trustworthy_buyer_id(buyer_id) -> bool:
+        """判断 buyer_id 是否可信，用于防串单校验。
+        不可信的值（占位符等）不应参与一致性比对。"""
+        if not buyer_id:
+            return False
+        return str(buyer_id).strip() not in XianyuLive._INVALID_BUYER_IDS
+
     def _extract_order_message_context(self, message: dict, msg_id: str = None) -> Dict[str, Any]:
         """从订单相关消息中提取买家、会话和商品信息。"""
-        buyer_id = "unknown_user"
+        buyer_id = None
         buyer_nick = None
         sid = ""
         item_id = None
@@ -1169,12 +1180,41 @@ class XianyuLive:
 
         try:
             message_1 = message.get("1")
-            if isinstance(message_1, str) and '@' in message_1:
-                buyer_id = message_1.split('@')[0]
+            if isinstance(message_1, str):
+                # message['1'] 是字符串，可能是 sid（如 "56226853668@goofish"）或消息ID（如 "4003914207496.PNM"）
+                if '@' in message_1:
+                    sid = message_1
+                else:
+                    # PNM 等非 sid 格式，真正的 sid 在 message['2']
+                    sid = message.get("2", "") or ""
+                buyer_id = None
+                # 尝试从 message['4'] 提取 buyer_id（PNM 等格式的 senderUserId 在这里）
+                message_4 = message.get("4")
+                if isinstance(message_4, dict):
+                    buyer_id = message_4.get("senderUserId") or None
+                    buyer_nick = self._sanitize_buyer_nick(
+                        message_4.get("senderNick"),
+                        source="senderNick(msg4)",
+                        message_meta=message_4,
+                        log_prefix=log_prefix
+                    )
+                    if not buyer_nick:
+                        reminder_title = message_4.get("reminderTitle", "")
+                        buyer_nick = self._sanitize_buyer_nick(
+                            reminder_title,
+                            source="reminderTitle(msg4)",
+                            message_meta=message_4,
+                            log_prefix=log_prefix
+                        )
+                        if buyer_nick:
+                            logger.info(f"{log_prefix} 👤 从message[4].reminderTitle提取到买家昵称: {buyer_nick}")
+                    if buyer_nick:
+                        logger.info(f"{log_prefix} 👤 从message[4]提取到买家昵称: {buyer_nick}")
+                logger.info(f"{log_prefix} 📌 简化消息，sid: {sid}，buyer_id: {buyer_id}")
             elif isinstance(message_1, dict):
                 if "10" in message_1 and isinstance(message_1["10"], dict):
                     message_10 = message_1["10"]
-                    buyer_id = message_10.get("senderUserId", "unknown_user")
+                    buyer_id = message_10.get("senderUserId") or None
                     buyer_nick = self._sanitize_buyer_nick(
                         message_10.get("senderNick"),
                         source="senderNick",
@@ -1202,6 +1242,12 @@ class XianyuLive:
         try:
             if "1" in message and isinstance(message["1"], dict) and "10" in message["1"] and isinstance(message["1"]["10"], dict):
                 url_info = message["1"]["10"].get("reminderUrl", "")
+                if isinstance(url_info, str) and "itemId=" in url_info:
+                    item_id = url_info.split("itemId=")[1].split("&")[0]
+
+            # message['4'] 中也可能包含 reminderUrl（PNM 等格式）
+            if not item_id and "4" in message and isinstance(message["4"], dict):
+                url_info = message["4"].get("reminderUrl", "")
                 if isinstance(url_info, str) and "itemId=" in url_info:
                     item_id = url_info.split("itemId=")[1].split("&")[0]
 
@@ -2849,8 +2895,8 @@ class XianyuLive:
                         fallback_item_id = recent_order.get('item_id')
                         fallback_buyer_id = recent_order.get('buyer_id')
 
-                        # 防串单：买家不一致直接拒绝
-                        if send_user_id and fallback_buyer_id and str(send_user_id) != str(fallback_buyer_id):
+                        # 防串单：买家不一致直接拒绝（仅当 DB 中的 buyer_id 可信时才校验）
+                        if send_user_id and fallback_buyer_id and self._is_trustworthy_buyer_id(fallback_buyer_id) and str(send_user_id) != str(fallback_buyer_id):
                             logger.warning(
                                 f'[{msg_time}] 【{self.cookie_id}】❌ sid兜底命中订单但买家不一致，已拒绝发货: '
                                 f'send_user_id={send_user_id}, order_buyer_id={fallback_buyer_id}, sid={fallback_sid}'
@@ -2930,7 +2976,7 @@ class XianyuLive:
                 existing_buyer_id = existing_order.get('buyer_id')
                 existing_item_id = existing_order.get('item_id')
 
-                if send_user_id and existing_buyer_id and str(send_user_id) != str(existing_buyer_id):
+                if send_user_id and existing_buyer_id and self._is_trustworthy_buyer_id(existing_buyer_id) and str(send_user_id) != str(existing_buyer_id):
                     logger.warning(
                         f'[{msg_time}] 【{self.cookie_id}】❌ 订单与当前会话买家不一致，拒绝自动发货: '
                         f'order_id={order_id}, send_user_id={send_user_id}, order_buyer_id={existing_buyer_id}'
@@ -6652,6 +6698,17 @@ Cookie数量: {cookie_count}
         """
         # 使用独立的订单详情锁，不与自动发货锁冲突
         order_detail_lock = self._order_detail_locks[order_id]
+
+        # 如果锁绑定了不同的事件循环（如从 Web API 调用），创建新锁
+        try:
+            current_loop = asyncio.get_running_loop()
+            lock_loop = getattr(order_detail_lock, '_loop', None)
+            if lock_loop is not None and lock_loop is not current_loop:
+                order_detail_lock = asyncio.Lock()
+                self._order_detail_locks[order_id] = order_detail_lock
+                logger.info(f"【{self.cookie_id}】订单详情锁 {order_id} 事件循环不匹配，已重建")
+        except RuntimeError:
+            pass
 
         # 记录订单详情锁的使用时间
         self._order_detail_lock_times[order_id] = time.time()
@@ -10476,19 +10533,22 @@ Cookie数量: {cookie_count}
             user_id = None
             try:
                 message_1 = message.get("1")
-                if isinstance(message_1, str) and '@' in message_1:
-                    user_id = message_1.split('@')[0]
+                if isinstance(message_1, str):
+                    # message['1'] 是字符串（sid 或 PNM 等），尝试从 message['4'] 提取 buyer_id
+                    message_4 = message.get("4")
+                    if isinstance(message_4, dict):
+                        user_id = message_4.get("senderUserId") or None
                 elif isinstance(message_1, dict):
                     # 如果message['1']是字典，从message["1"]["10"]["senderUserId"]中提取user_id
                     if "10" in message_1 and isinstance(message_1["10"], dict):
-                        user_id = message_1["10"].get("senderUserId", "unknown_user")
+                        user_id = message_1["10"].get("senderUserId") or None
                     else:
-                        user_id = "unknown_user"
+                        user_id = None
                 else:
-                    user_id = "unknown_user"
+                    user_id = None
             except Exception as e:
                 logger.warning(f"提取用户ID失败: {self._safe_str(e)}")
-                user_id = "unknown_user"
+                user_id = None
 
 
 

@@ -15095,9 +15095,21 @@ function clearIgnoredUpdateVersion(showFeedback = true) {
 
 // 本地版本历史（远程服务禁用时使用）
 const LOCAL_VERSION_HISTORY = {
-    version: 'v1.6.0',
+    version: 'v1.6.1',
     intro: '本系统仅供个人学习研究使用，请勿用于商业用途。如有问题或建议，欢迎反馈。',
     versionHistory: [
+        {
+            version: 'v1.6.1',
+            date: '2026-03-13',
+            updates: [
+                '【修复】简化消息buyer_id误提取：区分sid与PNM格式消息，不再将会话ID误提取为buyer_id，避免防串单校验误判',
+                '【修复】无效buyer_id污染订单数据：新增buyer_id可信度校验，识别unknown_user等无效占位符，防串单时自动跳过',
+                '【修复】数据库buyer_id被占位符覆盖：更新订单时跳过无效buyer_id覆盖已有有效值，新增订单时自动净化为空值',
+                '【新功能】PNM格式消息解析：从message[4]提取buyer_id、买家昵称和商品ID，提升订单信息完整度',
+                '【修复】订单详情锁事件循环不匹配：Web API调用时自动重建锁，避免跨事件循环死锁',
+                '【优化】统一buyer_id/user_id默认值：各处unknown_user占位符改为None，避免脏数据进入订单与发货链路'
+            ]
+        },
         {
             version: 'v1.6.0',
             date: '2026-03-12',

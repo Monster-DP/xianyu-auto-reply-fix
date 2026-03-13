@@ -6495,6 +6495,16 @@ Cookie数量: {cookie_count}
                 logger.error(f"获取表数据失败: {table_name} - {e}")
                 return [], []
 
+    # 已知的无效 buyer_id 占位值
+    _INVALID_BUYER_IDS = {"unknown_user", "unknown", "", "None", "null"}
+
+    @staticmethod
+    def _is_valid_buyer_id(buyer_id) -> bool:
+        """检查 buyer_id 是否为有效值（非占位符）"""
+        if not buyer_id:
+            return False
+        return str(buyer_id).strip() not in DBManager._INVALID_BUYER_IDS
+
     def insert_or_update_order(self, order_id: str, item_id: str = None, buyer_id: str = None,
                               spec_name: str = None, spec_value: str = None, quantity: str = None,
                               amount: str = None, order_status: str = None, cookie_id: str = None,
@@ -6547,8 +6557,11 @@ Cookie数量: {cookie_count}
                         update_fields.append("item_id = ?")
                         update_values.append(item_id)
                     if buyer_id is not None:
-                        update_fields.append("buyer_id = ?")
-                        update_values.append(buyer_id)
+                        if self._is_valid_buyer_id(buyer_id):
+                            update_fields.append("buyer_id = ?")
+                            update_values.append(buyer_id)
+                        else:
+                            logger.debug(f"跳过无效buyer_id覆盖: order_id={order_id}, invalid_buyer_id={buyer_id}")
                     if buyer_nick is not None:
                         update_fields.append("buyer_nick = ?")
                         update_values.append(buyer_nick)
@@ -6593,13 +6606,14 @@ Cookie数量: {cookie_count}
                         cursor.execute(sql, update_values)
                         logger.info(f"更新订单信息: {order_id}")
                 else:
-                    # 插入新订单
+                    # 插入新订单时，净化无效 buyer_id
+                    sanitized_buyer_id = buyer_id if self._is_valid_buyer_id(buyer_id) else None
                     insert_fields = [
                         'order_id', 'item_id', 'buyer_id', 'buyer_nick', 'sid', 'spec_name', 'spec_value',
                         'spec_name_2', 'spec_value_2', 'quantity', 'amount', 'order_status', 'cookie_id'
                     ]
                     insert_values = [
-                        order_id, item_id, buyer_id, buyer_nick, sid, spec_name, spec_value,
+                        order_id, item_id, sanitized_buyer_id, buyer_nick, sid, spec_name, spec_value,
                         spec_name_2, spec_value_2, quantity, amount, normalized_order_status or 'unknown', cookie_id
                     ]
 
