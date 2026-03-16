@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile-cn
+      args:
+        BASE_IMAGE: docker.m.daocloud.io/library/python:3.11-slim-bookworm
     image: xianyu-auto-reply:fixed
     container_name: xianyu-auto-reply-fixed
     restart: unless-stopped

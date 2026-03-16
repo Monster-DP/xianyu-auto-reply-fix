@@ -24,8 +24,8 @@ ENV TZ=Asia/Shanghai
 ENV DOCKER_ENV=true
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-#更换中科大源
-RUN sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debian.sources
+# 更换为阿里云 HTTPS 源，兼容当前网络环境
+RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources
 
 # 安装系统依赖（包括Playwright浏览器依赖）
 RUN apt-get update && \
@@ -87,8 +87,8 @@ ENV NODE_PATH=/usr/lib/node_modules
 
 # 复制requirements.txt并安装Python依赖
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple&& \
-    pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel --retries 5 -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    python -m pip install --no-cache-dir --retries 5 -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 复制项目文件
 COPY . .
